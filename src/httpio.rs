@@ -1,6 +1,7 @@
 
-use std::fs::File;
-use std::io::{Write, BufWriter};
+use std::fs;
+use std::fs::{ReadDir, File};
+use std::io::{Write, BufWriter, Read, BufReader};
 use hyper_tls::{HttpsConnector, TlsStream};
 use hyper::{Client, Body, Method, Request, Uri};
 use hyper::body::HttpBody as _;
@@ -312,8 +313,9 @@ pub async fn get_data(indnt:i32, urls:String, mut prmtbl: help::ParamMap) -> Res
     if stat.starts_with("200")
     {
         let mut fsiz : usize = 0;
-        let filepath = format!("{}/{}", help::get_data_dir(), prmtbl.get_data_filename());
-        let mut dtfile = File::create(filepath.clone())?;
+        let trgtdir = help::get_data_dir();
+        let filepath = format!("{}/{}", trgtdir, prmtbl.get_data_filename());
+        let dtfile = File::create(filepath.clone())?;
         let mut dtwrite = BufWriter::new(dtfile);
         /***
         let mut crrntpth : String  = String::new();
@@ -338,6 +340,8 @@ pub async fn get_data(indnt:i32, urls:String, mut prmtbl: help::ParamMap) -> Res
 
         indent_out(indnt);
         println!("{} {}", filepath, fsiz);
+
+        check_convergence(&trgtdir, &filepath);
     }
 
     Ok(stat)
@@ -366,8 +370,9 @@ pub async fn get_tls_data(indnt:i32, urls:String, mut prmtbl: help::ParamMap) ->
     if stat.starts_with("200")
     {
         let mut fsiz : usize = 0;
-        let filepath = format!("{}/{}", help::get_data_dir(), prmtbl.get_data_filename());
-        let mut dtfile = File::create(filepath.clone())?;
+        let trgtdir = help::get_data_dir();
+        let filepath = format!("{}/{}", trgtdir, prmtbl.get_data_filename());
+        let dtfile = File::create(filepath.clone())?;
         let mut dtwrite = BufWriter::new(dtfile);
         //let mut _cnt = 0;
         //let mut charbody : Vec<char> = Vec::new();
@@ -387,8 +392,126 @@ pub async fn get_tls_data(indnt:i32, urls:String, mut prmtbl: help::ParamMap) ->
 
         indent_out(indnt);
         println!("{} {}", filepath, fsiz);
+
+        check_convergence(&trgtdir, &filepath);
     }
     Ok(stat)
+}
+
+pub fn check_convergence(targetdir: &str, basefile:&str)
+{
+    let dirs = match fs::read_dir(targetdir)
+    {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    let basemeta = match fs::metadata(basefile)
+    {
+        Ok(v) => v,
+        Err(e) =>
+        {
+            println!("{}: {}", e, basefile);
+            return;
+        },
+    };
+    //println!("{:?}{}", basemeta, basemeta.len());
+
+    //println!("{:?}", dirs);
+    for mmbr in dirs
+    {
+        let name = match mmbr
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let chkname = name.path().display().to_string();
+        if basefile.to_string() != chkname
+        {
+            let checkmeta = match fs::metadata(chkname.clone())
+            {
+                Ok(v) => v,
+                Err(e) =>
+                {
+                    println!("{}: {}", e, chkname);
+                    return;
+                },
+            };
+            if basemeta.len() == checkmeta.len()
+            {
+                //println!("{}", chkname);
+                //println!("{:?}{}", checkmeta, checkmeta.len());
+                compare_file(basemeta.len().try_into().unwrap(), basefile, &chkname);
+            }
+        }
+    }
+}
+
+pub fn compare_file(fsize:usize, basefile:&str, chkname:&str) -> std::io::Result<()>
+{
+    let trgtf = File::open(basefile)?;
+    let chkf = File::open(chkname)?;
+    let mut chksize : usize = 0;
+
+    let trgtrdr = BufReader::new(trgtf);
+    let chkrdr = BufReader::new(chkf);
+
+    let mut trgtbytes:Vec<u8> = Vec::new();
+    for trgtdat in trgtrdr.bytes()
+    {
+        trgtbytes.push(trgtdat?);
+        chksize += 1;
+    }
+    if chksize != fsize
+    {
+        println!("{} size unmatch {}/{}", basefile, chksize, fsize);
+        return Ok(());
+    }
+    chksize = 0;
+    let mut chkbytes:Vec<u8> = Vec::new();
+    for chkdat in chkrdr.bytes()
+    {
+        chkbytes.push(chkdat?);
+        chksize += 1;
+    }
+    if chksize != fsize
+    {
+        println!("{} size unmatch {}/{}", chkname, chksize, fsize);
+        return Ok(());
+    }
+
+    chksize = 0;
+    loop
+    {
+        let trgt = match trgtbytes.pop()
+        {
+            Some(v) => v,
+            None => break,
+        };
+        let chk = match chkbytes.pop()
+        {
+            Some(v) => v,
+            None => break,
+        };
+        //println!("{}:{}", trgt, chk);
+        if trgt != chk
+        {break;}
+
+        chksize += 1;
+    }
+    if chksize == fsize
+    {
+        println!("{} x {} is same !!!", basefile, chkname);
+        match fs::remove_file(chkname)
+        {
+            Ok(_) => println!("remove {}", chkname),
+            Err(e) => println!("{} remove error: {}", chkname, e),
+        }
+    }
+    else
+    {println!("{}/{} {} x {} is Illegal ???", chksize, fsize, basefile, chkname);}
+
+    Ok(())
 }
 
 async fn body_surf(indnt:i32, currentpath:String, body:String, prmtbl: help::ParamMap) -> Result <(), Box<dyn std::error::Error + Send + Sync>>
