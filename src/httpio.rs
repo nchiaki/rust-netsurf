@@ -1,7 +1,8 @@
 
 use std::fs;
 use std::fs::{ReadDir, File};
-use std::io::{Write, BufWriter, Read, BufReader};
+use std::io;
+use std::io::{Write, BufWriter, Read, BufReader, Bytes};
 use hyper_tls::{HttpsConnector, TlsStream};
 use hyper::{Client, Body, Method, Request, Uri};
 use hyper::body::HttpBody as _;
@@ -449,13 +450,41 @@ pub fn check_convergence(targetdir: &str, basefile:&str)
 
 pub fn compare_file(fsize:usize, basefile:&str, chkname:&str) -> std::io::Result<()>
 {
-    let trgtf = File::open(basefile)?;
-    let chkf = File::open(chkname)?;
+    let mut trgtf = File::open(basefile)?;
+    let mut chkf = File::open(chkname)?;
     let mut chksize : usize = 0;
 
+    let mut trgtbuf = [0;1];
+    let mut chkbuf = [0;1];
+    loop
+    {
+        if fsize < chksize
+        {break;}
+
+        match trgtf.read(&mut trgtbuf)?
+        {
+            0 => break,
+            n =>
+            {
+                match chkf.read(&mut chkbuf)?
+                {
+                    0 => break,
+                    n =>
+                    {
+                            if trgtbuf[0] != chkbuf[0]
+                            {break;}
+                    },
+                }
+            },
+        }
+
+        chksize += 1;
+    }
+
+
+    /***
     let trgtrdr = BufReader::new(trgtf);
     let chkrdr = BufReader::new(chkf);
-
     let mut trgtbytes:Vec<u8> = Vec::new();
     for trgtdat in trgtrdr.bytes()
     {
@@ -499,6 +528,8 @@ pub fn compare_file(fsize:usize, basefile:&str, chkname:&str) -> std::io::Result
 
         chksize += 1;
     }
+    ***/
+
     if chksize == fsize
     {
         println!("{} x {} is same !!!", basefile, chkname);
