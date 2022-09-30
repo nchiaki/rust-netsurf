@@ -15,6 +15,7 @@ use crate::letssurf;
 
 const ERR_BUILDER : &str = "998";
 const ERR_UTF8 : &str = "997";
+const ERR_NOTFOUND : &str = "404";
 
 static mut VSTDLST_HTTP : Vec<String> = Vec::new();
 static mut VSTDLST_HTTPS : Vec<String> = Vec::new();
@@ -211,67 +212,75 @@ pub async fn get_tls_content(indnt:i32, urls:String, mut prmtbl: help::ParamMap)
                     None => break,
                 };
             //println!("{:?}", okbody);
-            let body = match String::from_utf8(okbody.expect("Error").to_vec())
+            let body : String;
+            if prmtbl.is_chk_utf8()
+            {
+                body = match String::from_utf8(okbody.expect("Error").to_vec())
                 {
                     Ok(v) => v,
                     Err(_e) =>
+                    {
+                        indent_out(indnt);
+                        if prmtbl.is_stop_utf8()
                         {
-                            indent_out(indnt);
-                            if prmtbl.is_stop_utf8()
-                            {
-                                println!("Illegal UTF-8");
-                                if prmtbl.is_stop_utf8dump()
-                                {println!("{}", bodybuf);}
-                                return Ok(ERR_UTF8.to_string());
-                            }
-                            else
-                            {
-                                println!("Illegal UTF-8 No encode read");
-                                let https = HttpsConnector::new();
-                                let client = Client::builder().build::<_, hyper::Body>(https);
-                                let mut resp = match client.get(urls.parse()?).await
-                                    {
-                                        Ok(v) => v,
-                                        Err(e) =>
-                                        {
-                                            indent_out(indnt);
-                                            println!("https builder error:{}", e);
-                                            return Ok(ERR_BUILDER.to_string());
-                                        },
-                                    };
-                                let stat = resp.status().to_string();
-                                if stat.starts_with("200")
+                            println!("Illegal UTF-8");
+                            if prmtbl.is_stop_utf8dump()
+                            {println!("{}", bodybuf);}
+                            return Ok(ERR_UTF8.to_string());
+                        }
+                        else
+                        {
+                            println!("Illegal UTF-8 No encode read");
+                            let https = HttpsConnector::new();
+                            let client = Client::builder().build::<_, hyper::Body>(https);
+                            let mut resp = match client.get(urls.parse()?).await
                                 {
-                                    let mut _cnt = 0;
-                                    let mut charbody : Vec<char> = Vec::new();
-                                    while let Some(strm) = resp.body_mut().data().await
+                                    Ok(v) => v,
+                                    Err(e) =>
                                     {
-                                        let binbody = match strm
-                                            {
-                                                Ok(v) => v,
-                                                Err(_e) => break,
-                                            };
-                                        // 取得したバイナリデータを char型バイトデータ として保存
-                                        for bd in binbody.iter()
+                                        indent_out(indnt);
+                                        println!("https builder error:{}", e);
+                                        return Ok(ERR_BUILDER.to_string());
+                                    },
+                                };
+                            let stat = resp.status().to_string();
+                            if stat.starts_with("200")
+                            {
+                                let mut _cnt = 0;
+                                let mut charbody : Vec<char> = Vec::new();
+                                while let Some(strm) = resp.body_mut().data().await
+                                {
+                                    let binbody = match strm
                                         {
-                                            charbody.push(*bd as char);
-                                        }
-                                        _cnt += 1;
-                                    }
-                                    // char型バイトデータを一文字ごとにストリングデータに変換
-                                    let strngbody:Vec<String> = charbody.iter().map(|x| x.to_string()).collect();
-                                    // 一文字ごとのストリングデータを一つのストリングとしてまとめる
-                                    let mut bodybuf : String = "".to_string();
-                                    for strdt in strngbody.iter()
+                                            Ok(v) => v,
+                                            Err(_e) => break,
+                                        };
+                                    // 取得したバイナリデータを char型バイトデータ として保存
+                                    for bd in binbody.iter()
                                     {
-                                        bodybuf = format!("{}{}", bodybuf, strdt);
+                                        charbody.push(*bd as char);
                                     }
-                                    body_surf(indnt, crrntpth, bodybuf.clone(), prmtbl).await?;
+                                    _cnt += 1;
                                 }
-                                return Ok(stat);
+                                // char型バイトデータを一文字ごとにストリングデータに変換
+                                let strngbody:Vec<String> = charbody.iter().map(|x| x.to_string()).collect();
+                                // 一文字ごとのストリングデータを一つのストリングとしてまとめる
+                                let mut bodybuf : String = "".to_string();
+                                for strdt in strngbody.iter()
+                                {
+                                    bodybuf = format!("{}{}", bodybuf, strdt);
+                                }
+                                body_surf(indnt, crrntpth, bodybuf.clone(), prmtbl).await?;
                             }
-                        },
+                            return Ok(stat);
+                        }
+                    },
                 };
+            }
+            else
+            {
+                body = unsafe{String::from_utf8_unchecked(okbody.expect("Error").to_vec())};
+            }
             bodybuf = format!("{}{}", bodybuf, body);
 
             //println!("[{}]", cnt);
@@ -342,7 +351,8 @@ pub async fn get_data(indnt:i32, urls:String, mut prmtbl: help::ParamMap) -> Res
         indent_out(indnt);
         println!("{} {}", filepath, fsiz);
 
-        check_convergence(&trgtdir, &filepath);
+        if prmtbl.is_chk_duplicate()
+        {check_convergence(&trgtdir, &filepath);}
     }
 
     Ok(stat)
@@ -394,7 +404,8 @@ pub async fn get_tls_data(indnt:i32, urls:String, mut prmtbl: help::ParamMap) ->
         indent_out(indnt);
         println!("{} {}", filepath, fsiz);
 
-        check_convergence(&trgtdir, &filepath);
+        if prmtbl.is_chk_duplicate()
+        {check_convergence(&trgtdir, &filepath);}
     }
     Ok(stat)
 }
@@ -793,7 +804,8 @@ pub async fn lets_raw_surf(indnt:i32, urlparts: &help::UrlParts, prmtbl: help::P
                 {panic!("Stop UTF-8");}
                 if prmtbl.is_stop_builder() && rtn.starts_with(ERR_BUILDER)
                 {panic!("Stop Builder");}
-
+                if prmtbl.is_stop_notfound() && rtn.starts_with(ERR_NOTFOUND)
+                {panic!("Stop NotFound");}
             }
         }
     }
@@ -809,6 +821,8 @@ pub async fn lets_raw_surf(indnt:i32, urlparts: &help::UrlParts, prmtbl: help::P
             {panic!("Stop UTF-8");}
             if prmtbl.is_stop_builder() && rtn.starts_with(ERR_BUILDER)
             {panic!("Stop Builder");}
+            if prmtbl.is_stop_notfound() && rtn.starts_with(ERR_NOTFOUND)
+            {panic!("Stop NotFound");}
         }
     }
     Ok(())

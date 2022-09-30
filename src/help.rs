@@ -38,9 +38,12 @@ impl UrlParts {
 }
 
 pub struct ParamMap {
+    chk_utf8 : bool,
+    chk_duplicate : bool,
     stp_utf8 : bool,
     stp_utf8dump : bool,
     stp_builder : bool,
+    stp_notfound : bool,
     log_pathparse : bool,
     data_save : bool,
     data_filename: String,
@@ -50,9 +53,12 @@ impl ParamMap {
     pub fn new () -> Self
     {
         ParamMap {
+            chk_utf8:true,
+            chk_duplicate:true,
             stp_utf8:false,
             stp_utf8dump:false,
             stp_builder:false,
+            stp_notfound:false,
             log_pathparse:false,
             data_save:false,
             data_filename: "".to_string(),
@@ -63,15 +69,27 @@ impl ParamMap {
     pub fn copy (&self) -> Self
     {
         ParamMap{
+            chk_utf8: self.chk_utf8,
+            chk_duplicate: self.chk_duplicate,
             stp_utf8: self.stp_utf8,
             stp_utf8dump: self.stp_utf8dump,
             stp_builder: self.stp_builder,
+            stp_notfound: self.stp_notfound,
             log_pathparse: self.log_pathparse,
             data_save: self.data_save,
             data_filename: self.data_filename.clone(),
             ignr_list: self.ignr_list.clone(),
         }
     }
+
+    pub fn reset_chk_utf8(&mut self)
+    {self.chk_utf8 = false;}
+    pub fn is_chk_utf8(&self) -> bool
+    {self.chk_utf8}
+    pub fn reset_chk_duplicate(&mut self)
+    {self.chk_duplicate = false;}
+    pub fn is_chk_duplicate(&self) -> bool
+    {self.chk_duplicate}
 
     pub fn set_stop_utf8(&mut self)
     {self.stp_utf8 = true;}
@@ -85,6 +103,10 @@ impl ParamMap {
     {self.stp_builder = true;}
     pub fn is_stop_builder(&self) -> bool
     {self.stp_builder}
+    pub fn set_stop_notfound(&mut self)
+    {self.stp_notfound = true;}
+    pub fn is_stop_notfound(&self) -> bool
+    {self.stp_notfound}
 
     pub fn set_log_pathparse(&mut self)
     {self.log_pathparse = true;}
@@ -198,7 +220,8 @@ pub fn usage()
         Some(v) => v,
         None => todo!(),
     };
-    println!("{} [-h|--help] [-d] [-a] {{[-r <NestLevel>] <StrURL>}} [<extId> ... [-storage <Dir>] [-stop <StopAttr>] [-ignor <KeyWord>] [-log <LogAttr>]]", iam);
+    println!("\n{} [-h|--help] [-d] [-a] {{[-r <NestLevel>] <StrURL>}} [<extId> ... [-storage <Dir>]", iam);
+    println!("\t[-nocheck <noCheckAttr>] [-stop <StopAttr>] [-ignor <KeyWord>] [-log <LogAttr>]]\n");
     println!("\t-d : 読み出しているコンテンツソースを表示します。Def.off");
     println!("\t-a : 読み出そうとするコンテンツから認証を求められた時、そのコンテンツに該当するID/Passwordを尋ねます。");
     println!("\t     Def.該当のコンテンツは認証エラーとして読み飛ばします。");
@@ -208,11 +231,13 @@ pub fn usage()
     println!("\t-storage <Dir> : <extID>で指定されたデータの読出し先ディレクトリを指定します。");
     println!("\t                 Def.カレントディレクトリ");
     println!("\t-stop <StopAttr> : <StopAttr>で指定したエラーが発生したときに停止します。");
-    println!("\t      <StopAttr> : [utf8 | utf8dump] | builder");
+    println!("\t      <StopAttr> : [utf8 | utf8dump] | builder | notfound");
     println!("\t-ignor <KeyWord> : <KeyWord>が含まれるURLは参照しません。");
     println!("\t       <KeyWord> : ascii文字");
     println!("\t-log <LogAttr>   : <LogAttr>で示されるログを出力します。");
     println!("\t     <LogAttr> : pathparse");
+    println!("\t-nocheck <noCheckAttr> : <noCheckAttr>で示されるチェックを無効にします。");
+    println!("\t          <noCheckAttr> : utf8 | duplicate");
 }
 
 pub fn parse_argv(argc:usize, argv:Vec<String>, mut prmtbl: ParamMap) -> Result <ParamMap, bool>
@@ -307,9 +332,46 @@ pub fn parse_argv(argc:usize, argv:Vec<String>, mut prmtbl: ParamMap) -> Result 
                     {prmtbl.set_stop_utf8dump();}
                     else if args == "builder"
                     {prmtbl.set_stop_builder();}
+                    else if args == "notfound"
+                    {prmtbl.set_stop_notfound();}
                     else
                     {
                         println!("正しいstop要因が指定されていません");
+                        usage();
+                        return Err(false);
+                    }
+                    ax += 1;
+                }
+            }
+            else if args == "-nocheck"
+            {
+                ax += 1;
+                if argc <= ax
+                {
+                    println!("stop要因が指定されていません");
+                    usage();
+                    return Err(false);
+                }
+                loop
+                {
+                    if argc <= ax
+                    {// パラメータ指定は終了
+                        ax -= 1;
+                        break;
+                    }
+                    args = &argv[ax];
+                    if args.starts_with("-")
+                    {// オプション指定が有るときはオプション解釈を続ける
+                        ax -= 1;
+                        break;
+                    }
+                    else if args == "utf8"
+                    {prmtbl.reset_chk_utf8();}
+                    else if args == "duplicate"
+                    {prmtbl.reset_chk_duplicate();}
+                    else
+                    {
+                        println!("正しいnocheck要因が指定されていません");
                         usage();
                         return Err(false);
                     }
